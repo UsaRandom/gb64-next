@@ -1,0 +1,8 @@
+# Included by the stock Makefile after its own rules. The SGI original
+# supplies default suffix rules and the clean family; the gb64 Makefile only
+# leans on it for `clean`.
+
+clean:
+	rm -rf build
+
+clobber: clean

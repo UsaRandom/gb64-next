@@ -16,6 +16,8 @@ include $(ROOT)/usr/include/make/PRdefs
 WARNING_FLAGS = -Werror=implicit-function-declaration
 
 RSP2DWARF ?= /home/james/go/src/github.com/lambertjamesd/rsp2dwarf/rsp2dwarf
+MAKEMASK ?= makemask
+CPP_LD ?= cpp
 
 # INCLUDE_DEBUGGER = TRUE
 
@@ -178,7 +180,7 @@ $(BOOT_OBJ): $(BOOT)
 	$(OBJCOPY) -I binary -B mips -O elf32-bigmips $< $@
 
 $(CP_LD_SCRIPT): $(LD_SCRIPT)
-	cpp -P -Wno-trigraphs $(LCDEFS) -DCODE_SEGMENT=$(CODESEGMENT) -o $@ $<
+	$(CPP_LD) -P -Wno-trigraphs $(LCDEFS) -DCODE_SEGMENT=$(CODESEGMENT) -o $@ $<
 
 $(CODESEGMENT):	$(CODEOBJECTS)
 		$(LD) -o $(CODESEGMENT) -r $(CODEOBJECTS) $(LDFLAGS)
@@ -186,7 +188,7 @@ $(CODESEGMENT):	$(CODEOBJECTS)
 $(TARGET_BASE_NAME).z64: $(CODESEGMENT) $(OBJECTS) $(CP_LD_SCRIPT)
 	$(LD) -L. -T $(CP_LD_SCRIPT) -Map $(TARGET_BASE_NAME).map -o $(TARGET_BASE_NAME).elf
 	$(OBJCOPY) --pad-to=0x100000 --gap-fill=0xFF $(TARGET_BASE_NAME).elf $(TARGET_BASE_NAME).z64 -O binary
-	makemask $(TARGET_BASE_NAME).z64
+	$(MAKEMASK) $(TARGET_BASE_NAME).z64
 
 cleanall: clean
 	rm -f $(CODEOBJECTS) $(OBJECTS)

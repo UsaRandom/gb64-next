@@ -1,0 +1,46 @@
+# Self-contained stand-in for the crashsdk's PRdefs, for hosts with no
+# /usr/include/n64 install (macOS). The stock Makefile does
+# `include $(ROOT)/usr/include/make/PRdefs`; pointing ROOT at tools/macsdk
+# lands here. Everything configurable sits behind ?= so the caller decides:
+#
+#   make ROOT=tools/macsdk \
+#        TOOLCHAIN=$(HOME)/n64inst-preview/bin/mips64-elf- \
+#        N64_SYSINC=<headers> N64_SYSLIB=<libs> SDK_PR_DIR=<PR objects> ...
+#
+# The real PRdefs pulls /usr/include/n64/make/commondefs for the SGI CFLAGS
+# composition (CFLAGS = defines + includes + opts + optimizer); that four-part
+# convention is reproduced here directly, because it is the only part of
+# commondefs the gb64 Makefile consumes.
+
+TOOLCHAIN ?= $(HOME)/n64inst-preview/bin/mips64-elf-
+
+# The first rule make sees wins the default goal, and this include runs before
+# any rule in the Makefile proper -- the crashsdk commondefs plays exactly this
+# trick so that `default:` further down is what a bare `make` builds.
+defaultrule: default
+
+N64_CC ?= $(TOOLCHAIN)gcc
+N64_CFLAGS ?= -c -mabi=32 -march=vr4300 -mfix4300 -ffreestanding -fno-common -fno-strict-aliasing -mno-abicalls -fno-PIC -G 0
+N64_AS ?= $(TOOLCHAIN)gcc
+N64_ASFLAGS ?= -c -x assembler-with-cpp -mabi=32 -march=vr4300 -mfix4300 -ffreestanding -G 0 -D_LANGUAGE_ASSEMBLY -DMIPSEB
+N64_LD ?= $(TOOLCHAIN)ld
+N64_LDFLAGS ?= --no-check-sections
+N64_OBJCOPY ?= $(TOOLCHAIN)objcopy
+
+CC = $(N64_CC) $(N64_CFLAGS)
+AS = $(N64_AS) $(N64_ASFLAGS)
+LD = $(N64_LD) $(N64_LDFLAGS)
+OBJCOPY = $(N64_OBJCOPY)
+
+N64_LIBGCCDIR ?= $(dir $(shell $(N64_CC) -mabi=32 -print-libgcc-file-name))
+
+# SGI commondefs composition, minus the VCS/hardware-sim archaeology.
+CFLAGS = $(GCDEFS) $(LCDEFS) $(LCINCS) $(LCOPTS) $(OPTIMIZER)
+GCDEFS =
+
+# makemask stamps the header checksum; tools/n64crc.py is its replacement and
+# the wrapper target invokes it, so inside the Makefile it can be a no-op
+# without leaving the ROM unstamped.
+MAKEMASK ?= true
+
+COMMONRULES = $(ROOT)/usr/include/make/commonrules

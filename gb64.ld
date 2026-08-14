@@ -1,6 +1,12 @@
 OUTPUT_ARCH (mips)
 
+/* 0 embeds data/PokemonYellow.gb for the fast dev loop; 1 embeds the 16-byte
+ * GB64_ROM magic block the romwrapper (and tools/mkgb64.js) splice a real ROM
+ * over -- the shipped template is a placeholder build. Overridable because
+ * the cpp step can now pass -DUSE_PLACEHOLDER=1 (tools/macbuild.sh does). */
+#ifndef USE_PLACEHOLDER
 #define USE_PLACEHOLDER 0
+#endif
 
 #define BEGIN_SEG(name, addr) \
     _##name##SegmentStart = ADDR(.name); \
@@ -43,6 +49,13 @@ OUTPUT_ARCH (mips)
    END_SEG(theme) \
 
 
+/* Where the SDK's prebuilt RSP objects live. The default is the crashsdk
+ * install path this script always assumed; a host without one (macOS) passes
+ * -DSDK_PR=<path> through the cpp step instead. */
+#ifndef SDK_PR
+#define SDK_PR /usr/lib/n64/PR
+#endif
+
 SECTIONS
 {
    __romPos = 0;
@@ -58,14 +71,14 @@ SECTIONS
    {
       build/asm/entry.o(.text);
       CODE_SEGMENT(.text);
-      /usr/lib/n64/PR/rspboot.o(.text);
-      /usr/lib/n64/PR/gspF3DEX2.fifo.o(.text);
+      SDK_PR/rspboot.o(.text);
+      SDK_PR/gspF3DEX2.fifo.o(.text);
       bin/rsp/ppu.o(.text);
 
       /* data */
       CODE_SEGMENT(.data*);
-      /usr/lib/n64/PR/rspboot.o(.data*);
-      /usr/lib/n64/PR/gspF3DEX2.fifo.o(.data*);
+      SDK_PR/rspboot.o(.data*);
+      SDK_PR/gspF3DEX2.fifo.o(.data*);
       bin/rsp/ppu.o(.data*);
 
       /* rodata */

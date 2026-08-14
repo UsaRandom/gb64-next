@@ -17,3 +17,5 @@ debugger/*
 !/bin/DUMMY
 tmp/
 build/*
+prebuilt/boot.6102
+build/

@@ -45,7 +45,12 @@
 #include "src/save.h"
 #include "tex/textures.h"
 
+/* Guarded the same way boot.c always guarded it: the debugger/ directory is
+ * not in this repository, so an unconditional include only ever built on a
+ * machine that happened to have it. */
+#ifdef USE_DEBUGGER
 #include "debugger/debugger.h"
+#endif
 
 #define RUN_TESTS 0
 
@@ -119,10 +124,12 @@ game(void)
 		 * the game's own SAVING screen rather than a stall mid-instruction. */
 		persistPendingCartRam(&gGameboy);
 
+#ifdef USE_DEBUGGER
         if ((pad[0]->button & L_CBUTTONS) && (~lastButton & L_CBUTTONS) && (pad[0]->button & R_TRIG) && (pad[0]->button & L_TRIG))
         {
             useDebugger(&gGameboy.cpu, &gGameboy.memory);
         }
+#endif
 
 		if (pad[0]->button & START_BUTTON)
 		{
