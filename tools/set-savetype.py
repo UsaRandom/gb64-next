@@ -41,4 +41,14 @@ old_ed = d[0x3F]
 d[0x3F] = ed_byte
 open(dst, "wb").write(bytes(d))
 print(f"{dst}: SVID saveType {old} -> {save_type} at {i + 4:#x}, "
-      f"ED 0x3F {old_ed:#04x} -> {ed_byte:#04x}; now fix CRC1/CRC2")
+      f"ED 0x3F {old_ed:#04x} -> {ed_byte:#04x}")
+
+# Recompute CRC1/CRC2 here rather than trusting the caller to: both patches
+# land inside the IPL3-checksummed first megabyte, and a stamped image with
+# a stale checksum boots fine in ares (which never checks) and black-screens
+# on the real console (which does) -- a lesson learned in the field.
+import subprocess
+subprocess.run(
+    [sys.executable, str(__import__("pathlib").Path(__file__).parent / "n64crc.py"), dst],
+    check=True,
+)
