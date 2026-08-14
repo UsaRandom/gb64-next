@@ -105,6 +105,7 @@ CODEFILES   =	boot.c game.c controller.c dram_stack.c gfxinit.c \
        src/erasemenu.c                       \
        src/upgrade.c                         \
        src/save.c                            \
+       src/sc64rtc.c                         \
        src/sprite.c                          \
        src/spritefont.c                      \
        src/faulthandler.c                    \

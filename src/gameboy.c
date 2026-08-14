@@ -7,6 +7,7 @@
 #include "../memory.h"
 #include "upgrade.h"
 #include "save.h"
+#include "sc64rtc.h"
 #include "rspppu.h"
 
 struct GameBoy __attribute__((aligned(16))) gGameboy;
@@ -94,6 +95,11 @@ void initGameboy(struct GameBoy* gameboy, struct ROMLayout* rom)
 
     WRITE_REGISTER_DIRECT(&gameboy->memory, REG_LCDC, 0x00);
     gameboy->memory.misc.time = gameboy->settings.timer;
+    /* And better than the stored timer when the cart can say what time it
+     * really is: on a SummerCart64 the battery-backed RTC re-seeds the MBC3
+     * clock, so it kept counting while the console was off. Anywhere else
+     * this is a no-op and the stored seed above stands. */
+    sc64RtcSeedClock(gameboy);
 }
 
 void requestInterrupt(struct GameBoy* gameboy, int interrupt)
