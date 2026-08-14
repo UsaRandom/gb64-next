@@ -55,9 +55,16 @@ int initControllers( int maxcontrollers )
         if ((pattern & (1<<i)) &&
                 !(statusdata[i].errno & CONT_NO_RESPONSE_ERROR)) {
 	    validcontrollerdata[numControllers++] = &controllerdata[i];
-	    if (numControllers == maxcontrollers) return numControllers;
+	    if (numControllers == maxcontrollers) break;
 	}
     }
+    /* Started unconditionally: the loop above used to return without ever starting
+     * the first read when every port enrolled, and ReadController() polls with
+     * OS_MESG_NOBLOCK -- so on any console whose PIF answers on all four channels,
+     * no message ever arrived and every button read as zero, forever. A stock N64
+     * with fewer than four pads can never hit this; the M64 showing exactly this
+     * dead-input symptom is what surfaced it, though whether its PIF enrolls four
+     * ports is measured nowhere yet -- see MainMenu's transfer-pak branch notes. */
     osContStartReadData(&controllerMsgQ);
     return numControllers;
 }
