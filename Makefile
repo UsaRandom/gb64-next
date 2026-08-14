@@ -206,3 +206,10 @@ romwrapper/gb.n64.js: $(TARGET_BASE_NAME).z64
 
 bin/objdump.txt: $(TARGET_BASE_NAME).z64
 	mips64-elf-objdump -S game.out > bin/objdump.txt
+
+# The compile rule has always written build/%.d dependency files; nothing ever
+# included them, so a header change rebuilt nothing and an incremental build
+# could link objects disagreeing about struct layouts. That is not hypothetical:
+# growing GameboySettings by 8 bytes produced an image where every cart booted
+# to a black screen until the tree was rebuilt from clean.
+-include $(patsubst %.c, build/%.d, $(CODEFILES))

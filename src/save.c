@@ -425,6 +425,11 @@ enum StoredInfoType loadSettings(struct GameBoy* gameboy)
         if (gameboy->settings.version <= 1) {
             gameboy->settings.storedType = getDeprecatedStoredInfoType(gameboy);
         }
+        if (gameboy->settings.version < 3) {
+            /* The struct read above is 64 bytes now; a pre-3 save only ever
+             * wrote 56, so the tail is whatever the storage held. */
+            gameboy->settings.wallAtSave = 0;
+        }
     }
     else
     {
@@ -528,6 +533,12 @@ int loadGameboyState(struct GameBoy* gameboy, enum StoredInfoType storeType)
             // intentionally fall through
         case 1:
             settings.compressedSize = 0;
+    }
+
+    if (settings.version < 3)
+    {
+        /* Same stale-tail guard as loadSettings: pre-3 saves wrote 56 bytes. */
+        settings.wallAtSave = 0;
     }
 
     gameboy->settings = settings;

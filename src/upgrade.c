@@ -19,6 +19,18 @@ void updateToLatestVersion(struct GameBoy* gameboy)
                 gameboy->settings.compressedSize = 0;
                 gameboy->settings.storedType = getDeprecatedStoredInfoType(gameboy);
                 break;
+            case 2:
+                /* The version-2 RTC experiment stored counter-minus-wall in
+                 * timer behind this flag. The wall base is unrecoverable, so
+                 * the counter restarts and the game asks for the clock once
+                 * more -- the last time it ever should. */
+                if (gameboy->settings.flags & GB_SETTINGS_FLAGS_RTC_OFFSET)
+                {
+                    gameboy->settings.timer = 0;
+                    gameboy->settings.flags &= (u16)~GB_SETTINGS_FLAGS_RTC_OFFSET;
+                }
+                gameboy->settings.wallAtSave = 0;
+                break;
         }
 
         ++gameboy->settings.version;

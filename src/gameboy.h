@@ -96,12 +96,13 @@ struct GameboyGraphicsSettings
 };
 
 #define GB_SETTINGS_FLAGS_DISABLE_GBC   0x1
-/* settings.timer holds counter-minus-wall from an SC64 RTC rather than the
- * absolute counter; see src/sc64rtc.c. */
+/* Version-2 experiment, dead in version 3: timer briefly held counter-minus-
+ * wall, which made the counter's integrity depend on the cart clock never
+ * lying. Kept only so the upgrade path can recognise and retire it. */
 #define GB_SETTINGS_FLAGS_RTC_OFFSET    0x2
 
 #define GB_SETTINGS_HEADER              0x47423634
-#define GB_SETTINGS_CURRENT_VERSION     2
+#define GB_SETTINGS_CURRENT_VERSION     3
 
 enum StoredInfoType
 {
@@ -128,6 +129,12 @@ struct GameboySettings
     u64 timer;
     enum StoredInfoType storedType;
     u32 compressedSize;
+    /* Version 3: the SC64 wall clock at the moment this save was written, in
+     * CPU_TICKS_PER_SECOND ticks since 2000-01-01, or 0 when no trustworthy
+     * clock answered. timer stays the plain absolute counter in every
+     * version; the pair lets loading apply elapsed off-time as a bounded,
+     * forward-only delta and shrug off a clock that lies (src/sc64rtc.c). */
+    u64 wallAtSave;
 };
 
 struct GameBoy

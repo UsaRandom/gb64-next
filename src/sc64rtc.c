@@ -9,19 +9,21 @@
  * the same "_UNL","OCK_" key pair the SC64 bootloader uses and locks again
  * on every exit path, leaving the cart exactly as the menu left it.
  *
- * How the clock actually works, learned the hard way: the MBC3 counter is
- * game-owned, writable state. Crystal does not just read it -- FixDays
- * rewrites the day counter down past day 140 and keeps its save-file offsets
- * consistent, and the set-clock flow writes all five registers. The first
- * version of this file re-imposed a wall-derived counter at every boot, which
- * fought those writes and made Crystal declare the clock broken on every
- * launch. So no seeding: the counter belongs to the game, and the SC64 RTC
- * contributes exactly one thing -- the time that passed while the console was
- * off. settings.timer stores counter-minus-wall (flagged by
- * GB_SETTINGS_FLAGS_RTC_OFFSET); loading adds wall back, so the counter
- * resumes advanced by the off-time, with every game write faithfully
- * preserved. Without an SC64 the flag stays clear and settings.timer remains
- * the absolute counter it always was. */
+ * How the clock actually works, learned the hard way twice: the MBC3 counter
+ * is game-owned, writable state -- games write it to set the clock and to
+ * fold the day counter down -- and games diagnose a dead cart battery by the
+ * counter moving backward or leaping. Version one of this file re-imposed a
+ * wall-derived counter every boot and fought the game's writes; version two
+ * stored counter-minus-wall, which was exact arithmetic built on an
+ * assumption the hardware then broke: it trusted the cart clock to be
+ * consistent between save and load, and a clock that has never been set (no
+ * USB on this cart to set it over) can answer anything at all. So version
+ * three trusts nothing: timer stays the plain absolute counter that works
+ * everywhere, wallAtSave records what the cart clock said at save, and a
+ * load applies the difference only when it is forward and under a year.
+ * Every lie a clock can tell -- garbage, backward, unset, absent -- lands in
+ * the same place: the counter resumes where it stopped, a frozen clock,
+ * which is the one failure MBC3 games shrug at. */
 
 #define SC64_REG_SR_CMD     0x1FFF0000
 #define SC64_REG_DATA0      0x1FFF0004
@@ -148,50 +150,52 @@ static int isTimerCart(struct GameBoy* gameboy)
     return gameboy->memory.mbc && (gameboy->memory.mbc->flags & MBC_FLAGS_TIMER);
 }
 
+/* The most off-time a load will believe, in ticks: 365 days. Past this --
+ * and past any backward step, however small -- the clock is assumed to be
+ * lying and the counter simply resumes where the save left it. A frozen
+ * clock is the one failure mode MBC3 games treat as normal; a counter that
+ * moves backward or leaps is the one they call a dead battery. The bound
+ * also stays clear of the counter's own 512-day wrap. */
+#define SC64_MAX_OFF_TICKS ((u64)365 * 86400 * CPU_TICKS_PER_SECOND)
+
 void sc64RtcApplyLoadedTimer(struct GameBoy* gameboy)
 {
     u64 now;
+    u64 elapsed;
 
     if (!isTimerCart(gameboy))
     {
         return;
     }
 
-    if (gameboy->settings.flags & GB_SETTINGS_FLAGS_RTC_OFFSET)
+    /* initGameboy already applied the absolute counter; everything below
+     * only ever adds trustworthy off-time on top of it. */
+    if (gameboy->settings.wallAtSave == 0)
     {
-        if (sc64RtcReadTicks(&now))
-        {
-            /* timer holds counter-minus-wall from the moment of the save;
-             * adding wall back resumes the counter advanced by exactly the
-             * time the console spent off. Unsigned wrap makes the negative
-             * case exact. */
-            gameboy->memory.misc.time = gameboy->settings.timer + now;
-        }
-        else
-        {
-            /* The save was made against a wall clock this environment does
-             * not have. Zero reads as a cartridge with a fresh battery: the
-             * game asks for the clock once, rather than running from a
-             * nonsense counter. */
-            gameboy->memory.misc.time = 0;
-        }
+        return;
     }
-    /* Flag clear: settings.timer was the absolute counter and initGameboy
-     * already applied it. */
+    if (!sc64RtcReadTicks(&now))
+    {
+        return;
+    }
+    if (now < gameboy->settings.wallAtSave)
+    {
+        return;
+    }
+    elapsed = now - gameboy->settings.wallAtSave;
+    if (elapsed > SC64_MAX_OFF_TICKS)
+    {
+        return;
+    }
+
+    gameboy->memory.misc.time = gameboy->settings.timer + elapsed;
 }
 
 void sc64RtcStoreTimer(struct GameBoy* gameboy)
 {
     u64 now;
 
-    if (isTimerCart(gameboy) && sc64RtcReadTicks(&now))
-    {
-        gameboy->settings.timer = gameboy->memory.misc.time - now;
-        gameboy->settings.flags |= GB_SETTINGS_FLAGS_RTC_OFFSET;
-    }
-    else
-    {
-        gameboy->settings.timer = gameboy->memory.misc.time;
-        gameboy->settings.flags &= (u16)~GB_SETTINGS_FLAGS_RTC_OFFSET;
-    }
+    gameboy->settings.timer = gameboy->memory.misc.time;
+    gameboy->settings.wallAtSave =
+        (isTimerCart(gameboy) && sc64RtcReadTicks(&now)) ? now : 0;
 }
