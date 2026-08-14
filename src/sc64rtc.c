@@ -168,6 +168,18 @@ void sc64RtcApplyLoadedTimer(struct GameBoy* gameboy)
         return;
     }
 
+    /* A counter at or past the MBC3's own 512-day carry can never be
+     * legitimate stored state -- games fold their day counter far below
+     * that -- only an artifact of the version-2 offset experiment or a
+     * corrupt save. Left alone it latches the carry bit at every boot,
+     * which games diagnose as a dead cart battery and answer with a
+     * set-the-clock prompt, forever, no matter how many times the clock is
+     * set and saved. Restarting at zero costs one honest prompt instead. */
+    if (gameboy->memory.misc.time >= (u64)512 * 86400 * CPU_TICKS_PER_SECOND)
+    {
+        gameboy->memory.misc.time = 0;
+    }
+
     /* initGameboy already applied the absolute counter; everything below
      * only ever adds trustworthy off-time on top of it. */
     if (gameboy->settings.wallAtSave == 0)

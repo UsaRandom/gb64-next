@@ -35,9 +35,23 @@ mbc3WriteTimer:
     add TMP2, TMP2, $at
     li $at, 60
     multu TMP2, $at
-    # seconds to microseconds
+    # the minutes-to-seconds product was never read back (and the seconds
+    # register never added), so a clock set landed 60x short of where the
+    # game put it -- upstream bug, invisible until wall-clock support made
+    # the counter's absolute value matter.
+    read_register_direct $at, REG_RTC_S
+    mflo TMP2
+    add TMP2, TMP2, $at
+    # seconds to ticks
     dsll TMP2, TMP2, 20
-    sd TMP2, MEMORY_MISC_TIMER(Memory)
+    # Two explicit word stores, never `sd`: under -mabi=32 this toolchain's
+    # gas assembles `sd` as the o32 REGISTER-PAIR macro -- sw TMP2 followed
+    # by sw of the NEXT register -- which wrote whatever that register held
+    # into the counter's low word. That is the corrupt-clock bug the M64
+    # kept reporting as a dead cart battery. Big-endian: high word first.
+    dsrl32 $at, TMP2, 0
+    sw $at, MEMORY_MISC_TIMER(Memory)
+    sw TMP2, (MEMORY_MISC_TIMER+4)(Memory)
     jr $ra
     nop
 

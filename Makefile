@@ -163,7 +163,7 @@ build/%.o: %.s
 	@mkdir -p $(@D)
 	$(AS) -g -Wa,-Iasm -o $@ $<
 
-asm/cpu.o: asm/memory.inc asm/registers.inc asm/_branch.s \
+build/asm/cpu.o: asm/memory.inc asm/registers.inc asm/_branch.s \
        asm/_cpu_inst_prefix.s asm/_math.s asm/_stopping_point.s \
        asm/_memory.s \
        asm/_registers.s \
