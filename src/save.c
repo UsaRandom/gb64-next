@@ -4,6 +4,7 @@
 #include "../memory.h"
 #include "debug_out.h"
 #include "upgrade.h"
+#include "sc64rtc.h"
 #include <string.h>
 #include "../gzip/uzlib.h"
 
@@ -645,7 +646,9 @@ int attemptGameboySaveState(struct GameBoy* gameboy, enum StoredInfoType storeTy
         return -1;
     }
 
-    gameboy->settings.timer = gameboy->memory.misc.time;
+    /* Offset against the SC64 wall clock when one is present, absolute
+     * counter otherwise -- src/sc64rtc.c owns the distinction. */
+    sc64RtcStoreTimer(gameboy);
 
 
     if (gSaveTypeSetting.saveType == SaveTypeFlash)
@@ -734,7 +737,9 @@ void persistPendingCartRam(struct GameBoy* gameboy)
      * whatever storedType was there before -- including a full save state --
      * because the cart RAM being committed is newer than anything it holds. */
     gameboy->settings.version = GB_SETTINGS_CURRENT_VERSION;
-    gameboy->settings.timer = gameboy->memory.misc.time;
+    /* Offset against the SC64 wall clock when one is present, absolute
+     * counter otherwise -- src/sc64rtc.c owns the distinction. */
+    sc64RtcStoreTimer(gameboy);
     gameboy->settings.storedType = StoredInfoTypeSettingsRAM;
     gameboy->settings.compressedSize = 0;
 

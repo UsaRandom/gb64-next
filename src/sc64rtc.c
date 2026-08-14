@@ -7,7 +7,21 @@
  * from SummerCart64 sw/bootloader/src/sc64.c and sw/controller/src/cfg.c.
  * The menu locks the registers before booting a game, so this unlocks with
  * the same "_UNL","OCK_" key pair the SC64 bootloader uses and locks again
- * on every exit path, leaving the cart exactly as the menu left it. */
+ * on every exit path, leaving the cart exactly as the menu left it.
+ *
+ * How the clock actually works, learned the hard way: the MBC3 counter is
+ * game-owned, writable state. Crystal does not just read it -- FixDays
+ * rewrites the day counter down past day 140 and keeps its save-file offsets
+ * consistent, and the set-clock flow writes all five registers. The first
+ * version of this file re-imposed a wall-derived counter at every boot, which
+ * fought those writes and made Crystal declare the clock broken on every
+ * launch. So no seeding: the counter belongs to the game, and the SC64 RTC
+ * contributes exactly one thing -- the time that passed while the console was
+ * off. settings.timer stores counter-minus-wall (flagged by
+ * GB_SETTINGS_FLAGS_RTC_OFFSET); loading adds wall back, so the counter
+ * resumes advanced by the off-time, with every game write faithfully
+ * preserved. Without an SC64 the flag stays clear and settings.timer remains
+ * the absolute counter it always was. */
 
 #define SC64_REG_SR_CMD     0x1FFF0000
 #define SC64_REG_DATA0      0x1FFF0004
@@ -47,7 +61,9 @@ static int fromBcd(u32 value)
 }
 
 /* Days since 2000-01-01 for a civil date; valid through 2099, which outlives
- * the SC64's own two-digit-year RTC. */
+ * the SC64's own two-digit-year RTC. Only differences of this value are ever
+ * used, so the epoch itself is arbitrary -- it just has to be the same one
+ * at store and at load. */
 static u32 daysSince2000(int year, int month, int day)
 {
     static const u16 daysBeforeMonth[12] = {
@@ -61,17 +77,15 @@ static u32 daysSince2000(int year, int month, int day)
     return days + (day - 1);
 }
 
-void sc64RtcSeedClock(struct GameBoy* gameboy)
+/* Read the SC64 RTC as CPU_TICKS_PER_SECOND ticks since the 2000-01-01
+ * epoch. Returns 0 -- leaving *ticksOut alone -- on any cart that is not an
+ * SC64, any command failure, or nonsense BCD. */
+static int sc64RtcReadTicks(u64 *ticksOut)
 {
     u32 sr;
     u32 timeWord;
     u32 dateWord;
     int spins;
-
-    if (!gameboy->memory.mbc || !(gameboy->memory.mbc->flags & MBC_FLAGS_TIMER))
-    {
-        return;
-    }
 
     regWrite(SC64_REG_KEY, SC64_KEY_UNLOCK_1);
     regWrite(SC64_REG_KEY, SC64_KEY_UNLOCK_2);
@@ -81,7 +95,7 @@ void sc64RtcSeedClock(struct GameBoy* gameboy)
         /* Not a SummerCart64 -- ares, a different cart, anything. The two key
          * writes above were writes to plain cart address space and no other
          * hardware assigns them meaning. */
-        return;
+        return 0;
     }
 
     regWrite(SC64_REG_SR_CMD, SC64_CMD_TIME_GET);
@@ -92,14 +106,14 @@ void sc64RtcSeedClock(struct GameBoy* gameboy)
         if (++spins > SC64_BUSY_SPIN_LIMIT)
         {
             regWrite(SC64_REG_KEY, SC64_KEY_LOCK);
-            return;
+            return 0;
         }
     } while (sr & SC64_SR_CPU_BUSY);
 
     if (sr & SC64_SR_CMD_ERROR)
     {
         regWrite(SC64_REG_KEY, SC64_KEY_LOCK);
-        return;
+        return 0;
     }
 
     /* rsp0 = weekday|hour|minute|second, rsp1 = century|year|month|day,
@@ -119,19 +133,65 @@ void sc64RtcSeedClock(struct GameBoy* gameboy)
         if (second > 59 || minute > 59 || hour > 23 ||
             day < 1 || day > 31 || month < 1 || month > 12)
         {
-            return;
+            return 0;
         }
 
-        /* The MBC3 counter is elapsed days/h/m/s with a 9-bit day, not a
-         * calendar -- what matters is that every boot derives it from the
-         * same epoch, so the counter advances by exactly the wall time the
-         * console spent off. Days since 2000-01-01 modulo the counter's own
-         * 512-day wrap gives that, and the wrap is the cartridge's normal
-         * behaviour that games already handle. */
+        *ticksOut = ((u64)daysSince2000(year, month, day) * 86400
+                   + (u64)hour * 3600 + (u64)minute * 60 + (u64)second)
+                   * CPU_TICKS_PER_SECOND;
+        return 1;
+    }
+}
+
+static int isTimerCart(struct GameBoy* gameboy)
+{
+    return gameboy->memory.mbc && (gameboy->memory.mbc->flags & MBC_FLAGS_TIMER);
+}
+
+void sc64RtcApplyLoadedTimer(struct GameBoy* gameboy)
+{
+    u64 now;
+
+    if (!isTimerCart(gameboy))
+    {
+        return;
+    }
+
+    if (gameboy->settings.flags & GB_SETTINGS_FLAGS_RTC_OFFSET)
+    {
+        if (sc64RtcReadTicks(&now))
         {
-            u64 seconds = (u64)(daysSince2000(year, month, day) % 512) * 86400
-                        + (u64)hour * 3600 + (u64)minute * 60 + (u64)second;
-            gameboy->memory.misc.time = seconds * CPU_TICKS_PER_SECOND;
+            /* timer holds counter-minus-wall from the moment of the save;
+             * adding wall back resumes the counter advanced by exactly the
+             * time the console spent off. Unsigned wrap makes the negative
+             * case exact. */
+            gameboy->memory.misc.time = gameboy->settings.timer + now;
         }
+        else
+        {
+            /* The save was made against a wall clock this environment does
+             * not have. Zero reads as a cartridge with a fresh battery: the
+             * game asks for the clock once, rather than running from a
+             * nonsense counter. */
+            gameboy->memory.misc.time = 0;
+        }
+    }
+    /* Flag clear: settings.timer was the absolute counter and initGameboy
+     * already applied it. */
+}
+
+void sc64RtcStoreTimer(struct GameBoy* gameboy)
+{
+    u64 now;
+
+    if (isTimerCart(gameboy) && sc64RtcReadTicks(&now))
+    {
+        gameboy->settings.timer = gameboy->memory.misc.time - now;
+        gameboy->settings.flags |= GB_SETTINGS_FLAGS_RTC_OFFSET;
+    }
+    else
+    {
+        gameboy->settings.timer = gameboy->memory.misc.time;
+        gameboy->settings.flags &= (u16)~GB_SETTINGS_FLAGS_RTC_OFFSET;
     }
 }

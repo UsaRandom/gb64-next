@@ -96,6 +96,9 @@ struct GameboyGraphicsSettings
 };
 
 #define GB_SETTINGS_FLAGS_DISABLE_GBC   0x1
+/* settings.timer holds counter-minus-wall from an SC64 RTC rather than the
+ * absolute counter; see src/sc64rtc.c. */
+#define GB_SETTINGS_FLAGS_RTC_OFFSET    0x2
 
 #define GB_SETTINGS_HEADER              0x47423634
 #define GB_SETTINGS_CURRENT_VERSION     2
