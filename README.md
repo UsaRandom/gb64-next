@@ -13,9 +13,9 @@ ModRetro M64 with a SummerCart64, and it changes three things:
   cartridge the moment the game closes its SRAM write window -- the commit at
   the end of every battery save -- so saving in-game just works, with no
   save-button ritual. The save button and its save states remain.
-* **Real-time clock support.** On a SummerCart64, MBC3 timer carts (Pokemon
-  Gold/Silver/Crystal) keep time from the cart's battery-backed RTC: the
-  emulated clock advances by exactly the time the console spent powered off.
+* **Real-time clock support.** On a SummerCart64, games with an MBC3 timer
+  keep time from the cart's battery-backed RTC: the emulated clock advances
+  by exactly the time the console spent powered off.
   The counter itself stays game-owned -- clock writes the game makes are
   honored -- and on any other cartridge or emulator the original stored-timer
   behaviour is untouched.
