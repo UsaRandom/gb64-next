@@ -24,6 +24,14 @@ extern struct SaveTypeSetting gSaveTypeSetting;
 typedef int (*SaveReadCallback)(void* target, int sramOffset, int length);
 typedef int (*SaveWriteCallback)(void *from, int sramOffset, int length);
 
+/* Set by the MBC write handlers when a game closes its SRAM write window --
+ * the commit that ends every battery save. Consumed once per frame by
+ * persistPendingCartRam(), which writes settings plus cart RAM through
+ * gSaveWriteCallback so an in-game save persists without anyone pressing the
+ * save button. Skipped for SaveTypeFlash, which cannot rewrite in place. */
+extern int gCartRamFlushPending;
+void persistPendingCartRam(struct GameBoy* gameboy);
+
 enum StoredInfoType loadSettings(struct GameBoy* gameboy);
 int loadGameboyState(struct GameBoy* gameboy, enum StoredInfoType storeType);
 void loadRAM(struct Memory* memory, enum StoredInfoType storeType, int compressedSize);

@@ -5,6 +5,22 @@
 #include "gameboy.h"
 #include "memory_map_offsets.h"
 #include "assert.h"
+#include "save.h"
+
+/* Every MBC funnels its RAM-enable register through here, so the moment a game
+ * closes the write window -- the commit at the end of every battery save -- is
+ * one observable edge. A flag rather than a flush, because these handlers run
+ * inside the CPU core's memory dispatch and the flush is PI work that belongs
+ * on the frame loop (persistPendingCartRam). initMemory sets the boot state
+ * directly; power-on is not a commit. */
+static void setRamDisabled(struct Memory* memory, int disabled)
+{
+    if (disabled && !memory->misc.ramDisabled)
+    {
+        gCartRamFlushPending = 1;
+    }
+    memory->misc.ramDisabled = disabled;
+}
 
 u16 paletteColors[] = {
     0x09C2,
@@ -91,7 +107,7 @@ void handleMBC1WriteWithMulticart(struct Memory* memory, int addr, int value, in
 
     if (writeRange == 0)
     {
-        memory->misc.ramDisabled = (value & 0xF) != 0xA;
+        setRamDisabled(memory, (value & 0xF) != 0xA);
     }
     else if (writeRange == 1)
     {  
@@ -172,7 +188,7 @@ void handleMBC2Write(struct Memory* memory, int addr, int value)
         } 
         else 
         {
-            memory->misc.ramDisabled = (value & 0xF) != 0xA;
+            setRamDisabled(memory, (value & 0xF) != 0xA);
         }
     }
 
@@ -240,7 +256,7 @@ void handleMBC3Write(struct Memory* memory, int addr, int value)
     int writeRange = addr >> 13;
     if (writeRange == 0)
     {
-        memory->misc.ramDisabled = (value & 0xF) != 0xA;
+        setRamDisabled(memory, (value & 0xF) != 0xA);
     }
     else if (writeRange == 1)
     {  
@@ -287,7 +303,7 @@ void handleMBC5Write(struct Memory* memory, int addr, int value)
 {
     switch (addr >> 12) {
         case 0: case 1:
-            memory->misc.ramDisabled = (value & 0xF) != 0xA;
+            setRamDisabled(memory, (value & 0xF) != 0xA);
             break;
         case 2:
             memory->misc.romBankLower = value;
@@ -321,7 +337,7 @@ void handleMBC7Write(struct Memory* memory, int addr, int value)
 {
     switch (addr >> 13) {
         case 0:
-            memory->misc.ramDisabled = (value & 0xF) != 0xA;
+            setRamDisabled(memory, (value & 0xF) != 0xA);
             break;
         case 1:
             memory->misc.romBankLower = value;
@@ -351,7 +367,7 @@ void handleHuC1Write(struct Memory* memory, int addr, int value)
 {
     switch (addr >> 13) {
         case 0:
-            memory->misc.ramDisabled = (value & 0xF) == 0xE;
+            setRamDisabled(memory, (value & 0xF) == 0xE);
             break;
         case 1:
             memory->misc.romBankLower = value & 0x3f;
@@ -382,7 +398,7 @@ void handleHuC3Write(struct Memory* memory, int addr, int value)
 {
     switch (addr >> 13) {
         case 0:
-            memory->misc.ramDisabled = (value & 0xF) != 0xA;
+            setRamDisabled(memory, (value & 0xF) != 0xA);
             break;
         case 1:
             memory->misc.romBankLower = value & 0x3f;

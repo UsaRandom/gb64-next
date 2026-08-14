@@ -33,6 +33,8 @@ char __attribute__((aligned(16))) gCompressedMemory[32 * 1024];
 SaveReadCallback gSaveReadCallback;
 SaveWriteCallback gSaveWriteCallback;
 
+int gCartRamFlushPending;
+
 int writeToUncompressedMemory(void *from, int sramOffset, int length) {
     memCopy(gUncompressedMemory + sramOffset, from, length);
     return 0;
@@ -679,6 +681,77 @@ int attemptGameboySaveState(struct GameBoy* gameboy, enum StoredInfoType storeTy
     }
 
     return 0;
+}
+
+/* The last cart RAM image actually flushed, as a checksum. Games are free to
+ * toggle the SRAM enable around reads as well as writes, and without this every
+ * disable would cost a 33 KB write to the cart; with it, a toggle that changed
+ * nothing costs one pass over cart RAM and no PI traffic. */
+static u32 gFlushedRamChecksum;
+static int gHasFlushedRamChecksum;
+
+static u32 cartRamChecksum(struct Memory* memory)
+{
+    int size = RAM_BANK_SIZE * getRAMBankCount(memory->rom);
+    u32 sum = 0x811C9DC5;
+    int i;
+    for (i = 0; i < size; ++i)
+    {
+        sum = (sum ^ (u8)memory->cartRam[i]) * 0x01000193;
+    }
+    return sum;
+}
+
+void persistPendingCartRam(struct GameBoy* gameboy)
+{
+    if (!gCartRamFlushPending)
+    {
+        return;
+    }
+    gCartRamFlushPending = 0;
+
+    /* Flash needs a chip erase before any bit can rise, which is exactly the
+     * whole-save path the save button already provides; rewriting two pages
+     * in place without one would only decay them. SRAM overwrites in place. */
+    if (gSaveTypeSetting.saveType == SaveTypeFlash)
+    {
+        return;
+    }
+
+    if (!gameboy->memory.mbc || !(gameboy->memory.mbc->flags & MBC_FLAGS_BATTERY))
+    {
+        return;
+    }
+
+    u32 checksum = cartRamChecksum(&gameboy->memory);
+    if (gHasFlushedRamChecksum && checksum == gFlushedRamChecksum)
+    {
+        return;
+    }
+
+    /* The same layout loadRAM() reads for an uncompressed SettingsRAM store:
+     * settings at 0, cart RAM at the next flash block boundary. This replaces
+     * whatever storedType was there before -- including a full save state --
+     * because the cart RAM being committed is newer than anything it holds. */
+    gameboy->settings.version = GB_SETTINGS_CURRENT_VERSION;
+    gameboy->settings.timer = gameboy->memory.misc.time;
+    gameboy->settings.storedType = StoredInfoTypeSettingsRAM;
+    gameboy->settings.compressedSize = 0;
+
+    if (gSaveWriteCallback(&gameboy->settings, 0, sizeof(struct GameboySettings)))
+    {
+        return;
+    }
+    if (gSaveWriteCallback(
+        gameboy->memory.cartRam,
+        ALIGN_FLASH_OFFSET(sizeof(struct GameboySettings)),
+        RAM_BANK_SIZE * getRAMBankCount(gameboy->memory.rom)))
+    {
+        return;
+    }
+
+    gFlushedRamChecksum = checksum;
+    gHasFlushedRamChecksum = 1;
 }
 
 enum StoredInfoType saveGameboyState(struct GameBoy* gameboy)

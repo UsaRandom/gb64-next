@@ -42,6 +42,7 @@
 #include "src/rspppu.h"
 #include "src/spritefont.h"
 #include "src/sprite.h"
+#include "src/save.h"
 #include "tex/textures.h"
 
 #include "debugger/debugger.h"
@@ -112,6 +113,11 @@ game(void)
     	initSprites();
 		lastButton = ReadLastButton(0);
 		pad = ReadController(0);
+
+		/* An in-game save leaves the MBC handlers' flag set; commit it from
+		 * here, between frames, where a 33 KB SRAM write is a hiccup inside
+		 * the game's own SAVING screen rather than a stall mid-instruction. */
+		persistPendingCartRam(&gGameboy);
 
         if ((pad[0]->button & L_CBUTTONS) && (~lastButton & L_CBUTTONS) && (pad[0]->button & R_TRIG) && (pad[0]->button & L_TRIG))
         {
