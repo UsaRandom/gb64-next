@@ -6,6 +6,7 @@
 #include "memory_map_offsets.h"
 #include "assert.h"
 #include "save.h"
+#include "sc64rtc.h"
 
 /* Every MBC funnels its RAM-enable register through here, so the moment a game
  * closes the write window -- the commit at the end of every battery save -- is
@@ -270,6 +271,11 @@ void handleMBC3Write(struct Memory* memory, int addr, int value)
     {
         if (memory->misc.romBankUpper == 0 && value == 1)
         {
+            /* The latch is the only doorway a game has to the clock, so
+             * this is where the counter is derived from real time (or a
+             * pending game write is folded in) before being snapshotted
+             * into the readable registers. */
+            sc64RtcSyncTime(memory);
             writeMBC3ClockRegisters(memory->misc.time, &READ_REGISTER_DIRECT(memory, REG_RTC_S));
         }
         

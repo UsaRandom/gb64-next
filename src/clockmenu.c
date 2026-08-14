@@ -1,6 +1,7 @@
 
 #include "clockmenu.h"
 #include "gameboy.h"
+#include "sc64rtc.h"
 #include "../render.h"
 #include "debug_out.h"
 #include "spritefont.h"
@@ -39,6 +40,8 @@ void setClockMenuActive(struct MenuItem* menuItem, int isActive)
 
     if (isActive)
     {
+        /* Show the derived current time, not the between-latches value. */
+        sc64RtcSyncTime(&gGameboy.memory);
         writeMBC3ClockRegisters(gGameboy.memory.misc.time, menu->registers);
         menu->day.cursorMenuItem.value = 
             ((menu->registers[REG_RTC_DH - REG_RTC_S] & 0x1) << 8) |
@@ -57,6 +60,9 @@ void setClockMenuActive(struct MenuItem* menuItem, int isActive)
 
         gGameboy.memory.misc.time = readMBC3ClockRegisters(menu->registers);
         writeMBC3ClockRegisters(gGameboy.memory.misc.time, &READ_REGISTER_DIRECT(&gGameboy.memory, REG_RTC_S));
+        /* A user edit is a clock write like any other: re-base the anchor
+         * on it at the next sync instead of overwriting it with real time. */
+        gGameboy.memory.misc.timerWrittenByGame = 1;
     }
 }
 

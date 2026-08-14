@@ -145,9 +145,66 @@ static int sc64RtcReadTicks(u64 *ticksOut)
     }
 }
 
-static int isTimerCart(struct GameBoy* gameboy)
+static int isTimerCart(struct Memory* memory)
 {
-    return gameboy->memory.mbc && (gameboy->memory.mbc->flags & MBC_FLAGS_TIMER);
+    return memory->mbc && (memory->mbc->flags & MBC_FLAGS_TIMER);
+}
+
+/* The session anchor: a counter value and the osGetTime() at which it was
+ * true, captured together. Latches derive the current counter from this pair
+ * instead of trusting misc.time as a running variable -- the hardware kept
+ * persisting counters no game write could have produced, and a derived
+ * counter makes the whole class of mid-session corruption unreadable: it is
+ * overwritten by anchor + elapsed at the very next latch. */
+static u64 gAnchorCounter;
+static OSTime gAnchorOsTime;
+static int gAnchorValid;
+
+static void anchorTimer(struct Memory* memory)
+{
+    gAnchorCounter = memory->misc.time;
+    gAnchorOsTime = osGetTime();
+    gAnchorValid = 1;
+    memory->misc.timerWrittenByGame = 0;
+}
+
+void sc64RtcSyncTime(struct Memory* memory)
+{
+    OSTime now;
+
+    if (!isTimerCart(memory))
+    {
+        return;
+    }
+
+    if (!gAnchorValid || memory->misc.timerWrittenByGame)
+    {
+        /* The game (or the pause-menu clock editor) moved the clock; its
+         * value in misc.time is the new truth. Re-base on it. */
+        anchorTimer(memory);
+        return;
+    }
+
+    now = osGetTime();
+
+    if (READ_REGISTER_DIRECT(memory, REG_RTC_DH) & REG_RTC_DH_HALT)
+    {
+        /* Halted MBC3 counters do not advance; keep re-basing at the frozen
+         * value so time spent halted never reappears when the game resumes
+         * the clock (that resume is a DH write, which folds via the flag). */
+        gAnchorCounter = memory->misc.time;
+        gAnchorOsTime = now;
+        return;
+    }
+
+    {
+        /* osGetTime ticks at OS_CPU_COUNTER Hz; split the conversion so it
+         * cannot overflow for any session length. */
+        u64 osElapsed = now - gAnchorOsTime;
+        memory->misc.time = gAnchorCounter
+            + (osElapsed / OS_CPU_COUNTER) * CPU_TICKS_PER_SECOND
+            + (osElapsed % OS_CPU_COUNTER) * CPU_TICKS_PER_SECOND / OS_CPU_COUNTER;
+    }
 }
 
 /* The most off-time a load will believe, in ticks: 365 days. Past this --
@@ -163,51 +220,52 @@ void sc64RtcApplyLoadedTimer(struct GameBoy* gameboy)
     u64 now;
     u64 elapsed;
 
-    if (!isTimerCart(gameboy))
+    if (!isTimerCart(&gameboy->memory))
     {
         return;
     }
 
     /* A counter at or past the MBC3's own 512-day carry can never be
      * legitimate stored state -- games fold their day counter far below
-     * that -- only an artifact of the version-2 offset experiment or a
-     * corrupt save. Left alone it latches the carry bit at every boot,
-     * which games diagnose as a dead cart battery and answer with a
-     * set-the-clock prompt, forever, no matter how many times the clock is
-     * set and saved. Restarting at zero costs one honest prompt instead. */
-    if (gameboy->memory.misc.time >= (u64)512 * 86400 * CPU_TICKS_PER_SECOND)
+     * that -- only a corrupt save. Left alone it latches the carry bit at
+     * every boot, which games diagnose as a dead cart battery and answer
+     * with a set-the-clock prompt, forever, no matter how many times the
+     * clock is set and saved. Restarting at zero costs one honest prompt
+     * instead. Clamp settings.timer itself, not just misc.time: the delta
+     * path below rebuilds misc.time from settings.timer, and an earlier
+     * version of this function clamped only the copy -- so the one path
+     * that runs solely on real hardware resurrected the poison. */
+    if (gameboy->settings.timer >= (u64)512 * 86400 * CPU_TICKS_PER_SECOND)
     {
+        gameboy->settings.timer = 0;
         gameboy->memory.misc.time = 0;
     }
 
-    /* initGameboy already applied the absolute counter; everything below
+    /* initGameboy already applied the absolute counter; the block below
      * only ever adds trustworthy off-time on top of it. */
-    if (gameboy->settings.wallAtSave == 0)
+    if (gameboy->settings.wallAtSave != 0
+        && sc64RtcReadTicks(&now)
+        && now >= gameboy->settings.wallAtSave)
     {
-        return;
-    }
-    if (!sc64RtcReadTicks(&now))
-    {
-        return;
-    }
-    if (now < gameboy->settings.wallAtSave)
-    {
-        return;
-    }
-    elapsed = now - gameboy->settings.wallAtSave;
-    if (elapsed > SC64_MAX_OFF_TICKS)
-    {
-        return;
+        elapsed = now - gameboy->settings.wallAtSave;
+        if (elapsed <= SC64_MAX_OFF_TICKS)
+        {
+            gameboy->memory.misc.time = gameboy->settings.timer + elapsed;
+        }
     }
 
-    gameboy->memory.misc.time = gameboy->settings.timer + elapsed;
+    anchorTimer(&gameboy->memory);
 }
 
 void sc64RtcStoreTimer(struct GameBoy* gameboy)
 {
     u64 now;
 
+    /* misc.time is only guaranteed current at a latch; derive it from the
+     * anchor before capturing it. */
+    sc64RtcSyncTime(&gameboy->memory);
+
     gameboy->settings.timer = gameboy->memory.misc.time;
     gameboy->settings.wallAtSave =
-        (isTimerCart(gameboy) && sc64RtcReadTicks(&now)) ? now : 0;
+        (isTimerCart(&gameboy->memory) && sc64RtcReadTicks(&now)) ? now : 0;
 }

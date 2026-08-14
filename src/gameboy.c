@@ -132,7 +132,6 @@ void emulateFrame(struct GameBoy* gameboy, void* colorBuffer)
     int catchupCycles;
     int screenWasEnabled;
     int ly;
-    u64 accumulatedTime = 0;
 
     screenWasEnabled = READ_REGISTER_DIRECT(&gameboy->memory, REG_LCDC) & LCDC_LCD_E;
 
@@ -145,7 +144,7 @@ void emulateFrame(struct GameBoy* gameboy, void* colorBuffer)
         {
             // Run the CPU until the start of the next frame
             gameboy->cpu.runUntilNextFrame = 1;
-            accumulatedTime += runCPU(
+            runCPU(
                 &gameboy->cpu, 
                 &gameboy->memory, 
                 (2 + GB_SCREEN_LINES - ly) * CYCLES_PER_LINE,
@@ -177,12 +176,10 @@ void emulateFrame(struct GameBoy* gameboy, void* colorBuffer)
         cyclesToRun += CYCLES_PER_LINE * V_BLANK_LINES - CYCLES_TIL_LINE_RENDER - 2;
         cyclesToRun -= runCPU(&gameboy->cpu, &gameboy->memory, cyclesToRun, RUN_CPU_FLAGS_RENDER);
 
-        accumulatedTime += CYCLES_PER_FRAME;
     }
     else
     {
         runCPU(&gameboy->cpu, &gameboy->memory, CYCLES_PER_FRAME, 0);
-        accumulatedTime += CYCLES_PER_FRAME;
     }
 
     tickAudio(&gameboy->memory, gameboy->cpu.unscaledCyclesRun);
@@ -194,10 +191,11 @@ void emulateFrame(struct GameBoy* gameboy, void* colorBuffer)
         adjustCyclesEmulator(&gameboy->memory.audio, MAX_CYCLE_TIME);
     }
 
-    if (!(READ_REGISTER_DIRECT(&gameboy->memory, REG_RTC_DH) & REG_RTC_DH_HALT)) 
-    {
-        gameboy->memory.misc.time += accumulatedTime;
-    }
+    /* misc.time is no longer accumulated per frame: the MBC3 counter is
+     * derived from the session anchor at every latch (sc64RtcSyncTime), so
+     * a value written here would only ever be overwritten -- and this
+     * read-modify-write was one more place a corrupted value could live on.
+     * Halt semantics moved to the sync as well. */
 
     if (colorBuffer && screenWasEnabled)
     {

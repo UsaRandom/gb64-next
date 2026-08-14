@@ -165,7 +165,12 @@ struct MiscMemory {
     int biosLoaded;
     u64 time;
     int ramDisabled;
-    unsigned char unused[0x44];
+    /* Set by mbc3WriteTimer (asm) whenever the game writes an RTC register;
+     * consumed at the next latch, where the write is folded into the wall
+     * clock anchor instead of being trusted as a running counter. Occupies
+     * the first word of what was struct padding, so no asm offset moved. */
+    u32 timerWrittenByGame;
+    unsigned char unused[0x40];
     unsigned char controlRegisters[0x80];
     unsigned char fastRam[128]; // last byte is actually interrupt register
 };

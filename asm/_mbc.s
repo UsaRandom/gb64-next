@@ -52,8 +52,11 @@ mbc3WriteTimer:
     dsrl32 $at, TMP2, 0
     sw $at, MEMORY_MISC_TIMER(Memory)
     sw TMP2, (MEMORY_MISC_TIMER+4)(Memory)
+    # tell the latch handler the game itself moved the clock, so the wall
+    # time anchor must be re-based on this value instead of overwriting it
+    li $at, 1
     jr $ra
-    nop
+    sw $at, MEMORY_MISC_TIMER_DIRTY(Memory)
 
 mbc3WriteTimer_error:
     jr $ra
